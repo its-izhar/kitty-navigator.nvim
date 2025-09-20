@@ -28,8 +28,11 @@ command! KittyNavigateRight    call s:KittyAwareNavigate('l')
 
 function! s:KittyCommand(args)
   let pw = get(g:, 'kitty_navigator_password', 0)
+  let send_to_socket = get(g:, 'kitty_navigator_send_to_socket', '')
   let pw_s = pw != "" ? '--password="' . pw . '" ' : ''
-  let cmd = 'kitty @ ' . pw_s . a:args
+  let sock_s = send_to_socket != '' ? '--to=' . send_to_socket . ' ' : ''
+  let cmd = 'kitten @ ' . sock_s . pw_s . a:args
+  echo cmd
   return system(cmd)
 endfunction
 
