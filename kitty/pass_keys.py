@@ -1,12 +1,17 @@
 import re
 
 from kittens.tui.handler import result_handler
+
 from kitty.key_encoding import KeyEvent, parse_shortcut
 
 
-def is_window_vim(window, vim_id):
-    fp = window.child.foreground_processes
-    return any(re.search(vim_id, p['cmdline'][0] if len(p['cmdline']) else '', re.I) for p in fp)
+def is_window_among_procs(window, proc_list):
+    # See if the window's foreground process matches any in the proc_list
+    fp = window.child.foreground_processes[0]["cmdline"]
+    for proc in proc_list:
+        if proc in fp[0]:
+            return True
+    return False
 
 
 def encode_key_mapping(window, key_mapping):
@@ -33,15 +38,19 @@ def main():
 def handle_result(args, result, target_window_id, boss):
     direction = args[1]
     key_mapping = args[2]
-    vim_id = args[3] if len(args) > 3 else "n?vim"
+    proc_str_csv = args[3] if len(args) > 3 else "vim,nvim,ssh,zellij"
+    proc_list = proc_str_csv.split(",")
+    # print(f"Processes to check: {proc_list}")
 
     window = boss.window_id_map.get(target_window_id)
-
     if window is None:
         return
-    if is_window_vim(window, vim_id):
+
+    # if the window is running one of the specified processes, send the key mapping to it
+    if is_window_among_procs(window, proc_list):
         for keymap in key_mapping.split(">"):
             encoded = encode_key_mapping(window, keymap)
             window.write_to_child(encoded)
     else:
+        # else, switch to the neighboring window in the specified direction
         boss.active_tab.neighboring_window(direction)
