@@ -8,13 +8,14 @@
 -- Directions: left, right, top, bottom (synonyms: up -> top, down -> bottom).
 --
 -- Configuration (pass to setup):
---   set_keymaps (bool)          : Apply default keymaps on setup (default: true)
---   to_socket_str (string|nil)  : Value passed as --to=<to_socket_str> to kitty
---   keymaps (table)             : { left, down, up, right } default: <C-Arrow> keys
---   enable_when ():boolean      : Predicate gating kitty usage (default: TERM == xterm-kitty)
---   on_command(cmdline)         : Hook before spawning (empty; commented body shows debugging)
---   on_success(direction)       : Hook after successful kitty focus (empty; commented example)
---   on_error(err, code)         : Hook on non-zero exit / navigation error (commented example)
+--   set_keymaps (bool)             : Apply default keymaps on setup (default: true)
+--   to_socket_str (string|nil)     : Value passed as --to=<to_socket_str> to kitty
+--   keymaps (table)                : { left, down, up, right } default: <C-Arrow> keys
+--   enable_when ():boolean         : Predicate gating kitty usage (default: TERM == xterm-kitty)
+--   enable_remote_when ():boolean  : Predicate gating kitty --to= usage (default: SSH_CLIENT and SSH_TTY set)
+--   on_command(cmdline)            : Hook before spawning (empty; commented body shows debugging)
+--   on_success(direction)          : Hook after successful kitty focus (empty; commented example)
+--   on_error(err, code)            : Hook on non-zero exit / navigation error (commented example)
 --
 -- Public API:
 --   setup(opts)
@@ -40,6 +41,9 @@ local defaults = {
 	},
 	enable_when = function()
 		return vim.env.TERM == "xterm-kitty"
+	end,
+	enable_remote_when = function()
+		return vim.env.SSH_CLIENT ~= nil and vim.env.SSH_TTY ~= nil
 	end,
 	on_command = function(_cmdline)
 		-- Debug example (uncomment to use):
@@ -77,8 +81,12 @@ local kitty_to_wincmd = {
 local function build_cmd(args_str)
 	-- Build argv vector for `vim.system`; no shell interpretation.
 	local cmd = { "kitten", "@" }
-	if config.to_socket_str and config.to_socket_str ~= "" then
-		cmd[#cmd + 1] = "--to=" .. config.to_socket_str
+	-- only add --to= if the predicate allows it.
+	if config.enable_remote_when() then
+		-- only add if non-empty string
+		if config.to_socket_str and config.to_socket_str ~= "" then
+			cmd[#cmd + 1] = "--to=" .. config.to_socket_str
+		end
 	end
 	for _, t in ipairs(vim.split(args_str, "%s+")) do
 		if t ~= "" then
