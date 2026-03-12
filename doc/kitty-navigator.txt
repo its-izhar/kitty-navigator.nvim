@@ -152,7 +152,7 @@ editor_var ~
         map ctrl+left kitten pass_keys.py left ctrl+left "my_custom_var"
 <
 
-                                                   *kitty-navigator-keymaps*
+                                              *kitty-navigator-config-keymaps*
 keymaps ~
     Type: table
 
