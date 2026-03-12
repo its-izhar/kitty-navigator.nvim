@@ -44,13 +44,23 @@ If you want to use alternate key mappings, see the [configuration section below]
 
 ## Installation (Neovim)
 
+> [!IMPORTANT]
+> **Do not lazy-load this plugin.** Set `lazy = false` in your plugin manager.
+>
+> The plugin registers lifecycle autocmds (VimEnter/VimLeave) that must fire at
+> startup to properly set Kitty's `in_editor` variable. Lazy loading breaks this
+> timing and causes navigation to fail.
+>
+> Internal lazy loading is already implemented—config and navigation modules are
+> only loaded on first use, so startup impact is minimal (~0.1-0.2ms).
+
 ### lazy.nvim
 ```lua
 {
   "its-izhar/kitty-navigator.nvim",
-  config = function()
-    require("kitty_navigator").setup()
-  end,
+  build = "cp ./kitty/* ~/.config/kitty/",
+  lazy = false,  -- Required: autocmds must register at startup
+  opts = {},
 }
 ```
 
@@ -68,9 +78,8 @@ This can be done manually or with a post-update hook in your package manager.
 {
   "its-izhar/kitty-navigator.nvim",
   build = "cp ./kitty/* ~/.config/kitty/",
-  config = function()
-    require("kitty_navigator").setup()
-  end,
+  lazy = false,  -- Required: autocmds must register at startup
+  opts = {},
 }
 ```
 
@@ -170,27 +179,33 @@ This creates `/tmp/kitty-remote.sock` on the remote machine, which tunnels back 
 On the **remote machine**, configure the plugin to use the forwarded socket:
 
 ```lua
-require("kitty_navigator").setup({
-  -- Path to the forwarded socket on the remote machine
-  socket_path = "unix:/tmp/kitty-remote.sock",
-})
+{
+  "its-izhar/kitty-navigator.nvim",
+  lazy = false,
+  opts = {
+    socket_path = "unix:/tmp/kitty-remote.sock",
+  },
+}
 ```
 
 Or use a function if you have multiple remote hosts with different socket paths:
 
 ```lua
-require("kitty_navigator").setup({
-  socket_path = function()
-    -- Use environment variable you set in your remote shell config
-    -- e.g., export KITTY_REMOTE_SOCK="/tmp/kitty-remote.sock"
-    local sock = vim.env.KITTY_REMOTE_SOCK
-    if sock and sock ~= "" then
-      return "unix:" .. sock
-    end
-    -- Fallback to standard forwarded path
-    return "unix:/tmp/kitty-remote.sock"
-  end,
-})
+{
+  "its-izhar/kitty-navigator.nvim",
+  lazy = false,
+  opts = {
+    socket_path = function()
+      -- Use environment variable you set in your remote shell config
+      -- e.g., export KITTY_REMOTE_SOCK="/tmp/kitty-remote.sock"
+      local sock = vim.env.KITTY_REMOTE_SOCK
+      if sock and sock ~= "" then
+        return "unix:" .. sock
+      end
+      return "unix:/tmp/kitty-remote.sock"
+    end,
+  },
+}
 ```
 
 ### Socket Path Format
@@ -232,6 +247,8 @@ kitten @ --to=unix:/tmp/kitty-remote.sock ls
 If this returns your Kitty windows/tabs, the forwarding is working correctly.
 
 ## Configuration Reference (Neovim)
+
+All options below go in `opts = {}` when using lazy.nvim.
 
 ```lua
 require("kitty_navigator").setup({

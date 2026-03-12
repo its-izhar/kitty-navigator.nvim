@@ -184,6 +184,9 @@ end
 
 ---Create lifecycle autocmds for editor state signaling.
 ---
+---IMPORTANT: These autocmds must register at Neovim startup.
+---Do not lazy-load this plugin externally—it breaks lifecycle signaling.
+---
 ---Events handled:
 ---  VimEnter   - Editor started, set in_editor=1 (async, 50ms delay)
 ---  VimResume  - Resumed from suspend (Ctrl-Z fg), set in_editor=1
@@ -193,9 +196,12 @@ end
 ---The 50ms delay on VimEnter ensures Kitty has fully initialized the
 ---terminal window before we try to set user variables.
 function M.create_autocmds()
+	-- Single augroup for all lifecycle events (reduces startup overhead)
+	local group = vim.api.nvim_create_augroup("KittyNavigator", { clear = true })
+
 	-- Editor entering/resuming: Set in_editor=1
 	vim.api.nvim_create_autocmd({ "VimEnter", "VimResume" }, {
-		group = vim.api.nvim_create_augroup("KittyNavigatorEnter", { clear = true }),
+		group = group,
 		callback = function()
 			-- Small delay to ensure Kitty terminal is ready
 			vim.defer_fn(function()
@@ -207,7 +213,7 @@ function M.create_autocmds()
 	-- Editor suspending (Ctrl-Z): Unset in_editor
 	-- Async is fine - shell will handle navigation while suspended
 	vim.api.nvim_create_autocmd("VimSuspend", {
-		group = vim.api.nvim_create_augroup("KittyNavigatorSuspend", { clear = true }),
+		group = group,
 		callback = function()
 			set_editor_state(false, false)
 		end,
@@ -216,7 +222,7 @@ function M.create_autocmds()
 	-- Editor leaving: Unset in_editor
 	-- MUST be synchronous to ensure completion before Neovim exits
 	vim.api.nvim_create_autocmd("VimLeave", {
-		group = vim.api.nvim_create_augroup("KittyNavigatorLeave", { clear = true }),
+		group = group,
 		callback = function()
 			set_editor_state(false, true)
 		end,

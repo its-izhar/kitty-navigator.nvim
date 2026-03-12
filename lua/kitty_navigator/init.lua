@@ -3,6 +3,10 @@
 --
 -- Minimal async Neovim <-> Kitty window navigator (Neovim >= 0.10)
 --
+-- IMPORTANT: Do not lazy-load this plugin externally (e.g., lazy.nvim keys/event).
+-- The lifecycle autocmds must register at startup for proper Kitty integration.
+-- Internal lazy loading is already implemented for config.lua and navigation.lua.
+--
 -- Behavior:
 --   1. Attempt local Neovim split move (:wincmd)
 --   2. If at edge, asynchronously instruct Kitty to focus neighbor pane
@@ -11,31 +15,46 @@
 --   setup(opts)           - Initialize with configuration
 --   navigate(direction)   - Navigate in direction
 --   left/right/up/down()  - Directional shortcuts
-
-local config = require("kitty_navigator.config")
-local navigation = require("kitty_navigator.navigation")
+--
+-- Performance: Modules are lazy-loaded until setup(), then navigation functions
+-- are reassigned to direct references for zero-overhead hot path.
 
 local M = {}
 
 -----------------------------------------------------------------------
--- Public Navigation API
+-- Lazy Module Loading
 -----------------------------------------------------------------------
+-- Defer require() of config.lua and navigation.lua until setup().
+-- After setup(), navigation functions are reassigned to direct references
+-- for zero-overhead hot path (no wrapper function calls).
+
+local config, navigation
+
+-----------------------------------------------------------------------
+-- Public Navigation API (Stubs)
+-----------------------------------------------------------------------
+-- These stubs exist only until setup() is called. After setup(), they are
+-- replaced with direct references to navigation module functions.
+
+local function not_initialized()
+	error("kitty-navigator: setup() must be called before using navigation functions", 2)
+end
 
 ---Navigate in the specified direction
 ---@param direction Direction Direction to navigate ("left"|"right"|"up"|"down"|"top"|"bottom")
-M.navigate = navigation.navigate
+M.navigate = not_initialized
 
 ---Navigate left
-M.left = navigation.left
+M.left = not_initialized
 
 ---Navigate right
-M.right = navigation.right
+M.right = not_initialized
 
 ---Navigate up
-M.up = navigation.up
+M.up = not_initialized
 
 ---Navigate down
-M.down = navigation.down
+M.down = not_initialized
 
 -----------------------------------------------------------------------
 -- Keymaps
@@ -83,6 +102,12 @@ end
 ---    editor_var = "in_editor",                      -- Kitty user variable name
 ---  })
 function M.setup(opts)
+	-- Load modules on first setup
+	if not config then
+		config = require("kitty_navigator.config")
+		navigation = require("kitty_navigator.navigation")
+	end
+
 	-- Initialize configuration (evaluates predicates, builds base_cmd)
 	config.setup(opts)
 
@@ -91,6 +116,14 @@ function M.setup(opts)
 
 	-- Create lifecycle autocmds (VimEnter/Leave for editor state)
 	navigation.create_autocmds()
+
+	-- Hot path optimization: replace stubs with direct references
+	-- No wrapper overhead after setup() - direct function calls
+	M.navigate = navigation.navigate
+	M.left = navigation.left
+	M.right = navigation.right
+	M.up = navigation.up
+	M.down = navigation.down
 
 	-- Apply keymaps if enabled
 	if config.set_keymaps then

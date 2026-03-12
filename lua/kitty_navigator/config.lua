@@ -189,9 +189,11 @@ function M.setup(opts)
 	local err = validate(opts)
 	if err then
 		vim.notify("kitty-navigator: " .. err .. ". Using defaults.", vim.log.levels.ERROR)
-		config = vim.deepcopy(defaults)
+		-- On validation error, use defaults directly (no user opts to merge)
+		config = vim.tbl_deep_extend("force", {}, defaults)
 	else
-		config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
+		-- Merge user opts into defaults (avoids redundant deepcopy)
+		config = vim.tbl_deep_extend("force", {}, defaults, opts)
 	end
 
 	---------------------------------------------------------------------------

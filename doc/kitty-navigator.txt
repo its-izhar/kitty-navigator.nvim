@@ -50,11 +50,12 @@ Using lazy.nvim: >lua
     {
       "its-izhar/kitty-navigator.nvim",
       build = "cp ./kitty/* ~/.config/kitty/",
-      config = function()
-        require("kitty_navigator").setup()
-      end,
+      lazy = false,  -- Required: autocmds must register at startup
+      opts = {},
     }
 <
+Note: Do not lazy-load this plugin. The lifecycle autocmds (VimEnter/VimLeave)
+must register at startup to properly set Kitty's `in_editor` variable.
 
 KITTY SETUP ~
 
@@ -369,7 +370,7 @@ KEYS SENT TO WRONG PANE ~
 
 This usually means the in_editor variable wasn't unset when you left Neovim.
 Check that VimLeave autocmd is firing: >vim
-    :autocmd KittyNavigatorLeave
+    :autocmd KittyNavigator VimLeave
 <
 
  vim:tw=78:ts=8:ft=help:norl:
