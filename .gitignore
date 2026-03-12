@@ -1,1 +1,7 @@
 doc/tags
+.claude/
+.claude-octopus/
+.codex/
+__pycache__/
+*.pyc
+CLAUDE.md
