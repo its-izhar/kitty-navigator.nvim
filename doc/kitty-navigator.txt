@@ -1,38 +1,375 @@
-*kitty-navigator.txt* Plugin to allow seamless navigation between kitty and vim
+*kitty-navigator.txt*  Seamless navigation between Neovim and Kitty panes
+
+License: MIT
 
 ==============================================================================
-CONTENTS                               *kitty-navigator-contents*
+CONTENTS                                            *kitty-navigator-contents*
 
-
-==============================================================================
-INTRODUCTION                           *kitty-navigator*
-
-Vim-kitty-navigator is a little plugin which enables seamless navigation
-between kitty panes and vim splits. This plugin is a repackaging of Mislav
-Marohinc's tmux=navigator configuration. When combined with a set of kitty key
-bindings, the plugin will allow you to navigate seamlessly between vim and
-kitty splits using a consistent set of hotkeys.
-
-NOTE: This requires kitty v0.13.1 or higher.
+    1. Introduction .......................... |kitty-navigator-introduction|
+    2. Requirements .......................... |kitty-navigator-requirements|
+    3. Installation .......................... |kitty-navigator-installation|
+    4. Configuration ......................... |kitty-navigator-configuration|
+    5. SSH Setup ............................. |kitty-navigator-ssh|
+    6. Commands .............................. |kitty-navigator-commands|
+    7. Keymaps ............................... |kitty-navigator-keymaps|
+    8. How It Works .......................... |kitty-navigator-how-it-works|
+    9. Troubleshooting ....................... |kitty-navigator-troubleshooting|
 
 ==============================================================================
-CONFIGURATION                             *kitty-navigator-configuration*
+1. INTRODUCTION                                 *kitty-navigator-introduction*
 
-* Custom Key Bindings
- let g:kitty_navigator_no_mappings = 1
+kitty-navigator.nvim enables seamless navigation between Neovim splits and
+Kitty terminal panes using a consistent set of keybindings.
 
- nnoremap <silent> {Left-mapping} :KittyNavigateLeft<cr>
- nnoremap <silent> {Down-Mapping} :KittyNavigateDown<cr>
- nnoremap <silent> {Up-Mapping} :KittyNavigateUp<cr>
- nnoremap <silent> {Right-Mapping} :KittyNavigateRight<cr>
- nnoremap <silent> {Previous-Mapping} :KittyNavigatePrevious<cr>
+When you press a navigation key (e.g., <C-Left>):
+  1. If there's a Neovim split in that direction, focus moves to it
+  2. If you're at the edge, focus moves to the neighboring Kitty pane
 
-* Navigating In Stacked Layout
-let g:kitty_navigator_enable_stack_layout = 1
+This works both locally and over SSH connections.
 
-By default `vim-kitty-navigator` prevents navigating to "hidden" windows while in
-stacked layout. This is to prevent accidentally switching to a window that is
-"hidden" behind the current window. The default behavior can be overridden by 
-setting the `kitty_navigator_enable_stack_layout` option to 1.
+Features:
+  - Hybrid navigation (Neovim splits + Kitty panes)
+  - SSH support via socket forwarding
+  - Async execution (never blocks the editor)
+  - Configurable keymaps and editor variable
+  - Zero configuration for local use
+
+==============================================================================
+2. REQUIREMENTS                                 *kitty-navigator-requirements*
+
+  - Neovim >= 0.10 (uses |vim.system()| for async)
+  - Kitty >= 0.30.0 (for `focus-window --match neighbor:`)
+  - Kitty remote control enabled (see |kitty-navigator-installation|)
+
+==============================================================================
+3. INSTALLATION                                 *kitty-navigator-installation*
+
+NEOVIM SETUP ~
+
+Using lazy.nvim: >lua
+    {
+      "its-izhar/kitty-navigator.nvim",
+      build = "cp ./kitty/* ~/.config/kitty/",
+      config = function()
+        require("kitty_navigator").setup()
+      end,
+    }
+<
+
+KITTY SETUP ~
+
+1. Copy the kitten to Kitty's config directory:
+>bash
+    cp ./kitty/pass_keys.py ~/.config/kitty/
+<
+
+2. Add keybindings to ~/.config/kitty/kitty.conf:
+>conf
+    map ctrl+down  kitten pass_keys.py bottom ctrl+down   "in_editor"
+    map ctrl+up    kitten pass_keys.py top    ctrl+up     "in_editor"
+    map ctrl+left  kitten pass_keys.py left   ctrl+left   "in_editor"
+    map ctrl+right kitten pass_keys.py right  ctrl+right  "in_editor"
+<
+
+3. Enable remote control in ~/.config/kitty/kitty.conf:
+>conf
+    # For local use (Linux abstract socket):
+    allow_remote_control yes
+    listen_on unix:@mykitty
+
+    # For SSH support (file-based socket):
+    allow_remote_control yes
+    listen_on unix:/tmp/kitty-$USER.sock
+<
+
+4. Restart Kitty completely (remote control requires full restart).
+
+==============================================================================
+4. CONFIGURATION                               *kitty-navigator-configuration*
+
+Call setup() with your options: >lua
+
+    require("kitty_navigator").setup({
+      -- Install default <C-Arrow> keymaps (default: true)
+      set_keymaps = true,
+
+      -- Socket path for Kitty remote control
+      -- Required for SSH. Can be string or function.
+      -- Format: "unix:<path>"
+      socket_path = nil,
+
+      -- Kitty user variable for editor detection (default: "in_editor")
+      -- Must match the variable in your kitty.conf mappings
+      editor_var = "in_editor",
+
+      -- Keymap configuration
+      keymaps = {
+        left  = "<C-Left>",
+        down  = "<C-Down>",
+        up    = "<C-Up>",
+        right = "<C-Right>",
+      },
+
+      -- Enable Kitty integration when this returns true
+      enable_when = function()
+        return vim.env.TERM == "xterm-kitty"
+      end,
+
+      -- Use --to=<socket> flag when this returns true (SSH sessions)
+      enable_remote_when = function()
+        return vim.env.SSH_CLIENT ~= nil and vim.env.SSH_TTY ~= nil
+      end,
+    })
+<
+
+                                                *kitty-navigator-socket_path*
+socket_path ~
+    Type: string | function | nil
+
+    The Unix socket path for Kitty remote control. Required for SSH sessions.
+
+    Abstract socket (Linux local only): >lua
+        socket_path = "unix:@mykitty"
+<
+    File-based socket (required for SSH): >lua
+        socket_path = "unix:/tmp/kitty-remote.sock"
+<
+    Dynamic function: >lua
+        socket_path = function()
+          return "unix:" .. vim.env.KITTY_REMOTE_SOCK
+        end
+<
+
+                                                  *kitty-navigator-editor_var*
+editor_var ~
+    Type: string (default: "in_editor")
+
+    The Kitty user variable name used to signal that an editor is active.
+    The pass_keys.py kitten checks this variable to decide whether to
+    forward keypresses to Neovim or handle navigation directly.
+
+    If you change this, update your kitty.conf mappings to match: >conf
+        map ctrl+left kitten pass_keys.py left ctrl+left "my_custom_var"
+<
+
+                                                   *kitty-navigator-keymaps*
+keymaps ~
+    Type: table
+
+    Custom keybindings for navigation. Set to different keys if the defaults
+    conflict with your setup: >lua
+        keymaps = {
+          left  = "<C-h>",
+          down  = "<C-j>",
+          up    = "<C-k>",
+          right = "<C-l>",
+        }
+<
+
+                                                *kitty-navigator-enable_when*
+enable_when ~
+    Type: function returning boolean
+
+    Predicate that determines if Kitty integration should be enabled.
+    When false, navigation keys only move between Neovim splits.
+
+    Default checks TERM environment variable: >lua
+        enable_when = function()
+          return vim.env.TERM == "xterm-kitty"
+        end
+<
+
+                                         *kitty-navigator-enable_remote_when*
+enable_remote_when ~
+    Type: function returning boolean
+
+    Predicate that determines if the --to=<socket> flag should be used.
+    Required for SSH sessions where kitten @ needs an explicit socket path.
+
+    Default checks SSH environment variables: >lua
+        enable_remote_when = function()
+          return vim.env.SSH_CLIENT ~= nil and vim.env.SSH_TTY ~= nil
+        end
+<
+
+==============================================================================
+5. SSH SETUP                                             *kitty-navigator-ssh*
+
+To use kitty-navigator over SSH, you need to forward the Kitty socket.
+
+SOCKET TYPES ~
+
+    Abstract sockets (unix:@name):
+      - Linux only
+      - Cannot be forwarded over SSH
+      - Fine for local use
+
+    File-based sockets (unix:/path/to/sock):
+      - Works on all Unix systems
+      - Can be forwarded over SSH
+      - Required for remote use
+
+STEP 1: Configure Local Kitty ~
+
+Use a file-based socket in ~/.config/kitty/kitty.conf: >conf
+    allow_remote_control yes
+    listen_on unix:/tmp/kitty-$USER.sock
+<
+
+STEP 2: Forward Socket via SSH ~
+
+When connecting, use remote forwarding: >bash
+    ssh -R /tmp/kitty-remote.sock:/tmp/kitty-$USER.sock user@host
+<
+
+Or add to ~/.ssh/config: >
+    Host myserver
+        HostName example.com
+        RemoteForward /tmp/kitty-remote.sock /tmp/kitty-%r.sock
+<
+
+STEP 3: Configure Remote Neovim ~
+
+On the remote machine: >lua
+    require("kitty_navigator").setup({
+      socket_path = "unix:/tmp/kitty-remote.sock",
+    })
+<
+
+VERIFY SETUP ~
+
+Test from the remote machine: >bash
+    kitten @ --to=unix:/tmp/kitty-remote.sock ls
+<
+
+If this returns your Kitty windows/tabs, the forwarding works.
+
+==============================================================================
+6. COMMANDS                                         *kitty-navigator-commands*
+
+                                                        *:KittyNavigateLeft*
+:KittyNavigateLeft      Navigate to the left Neovim split or Kitty pane.
+
+                                                       *:KittyNavigateRight*
+:KittyNavigateRight     Navigate to the right Neovim split or Kitty pane.
+
+                                                          *:KittyNavigateUp*
+:KittyNavigateUp        Navigate to the upper Neovim split or Kitty pane.
+
+                                                        *:KittyNavigateDown*
+:KittyNavigateDown      Navigate to the lower Neovim split or Kitty pane.
+
+==============================================================================
+7. KEYMAPS                                           *kitty-navigator-keymaps*
+
+Default keymaps (Normal mode):
+
+    <C-Left>    Navigate left
+    <C-Down>    Navigate down
+    <C-Up>      Navigate up
+    <C-Right>   Navigate right
+
+To disable default keymaps and set your own: >lua
+
+    require("kitty_navigator").setup({
+      set_keymaps = false,
+    })
+
+    -- Custom mappings
+    vim.keymap.set("n", "<C-h>", require("kitty_navigator").left)
+    vim.keymap.set("n", "<C-j>", require("kitty_navigator").down)
+    vim.keymap.set("n", "<C-k>", require("kitty_navigator").up)
+    vim.keymap.set("n", "<C-l>", require("kitty_navigator").right)
+<
+
+==============================================================================
+8. HOW IT WORKS                                 *kitty-navigator-how-it-works*
+
+NAVIGATION FLOW ~
+
+1. User presses navigation key (e.g., <C-Left>)
+
+2. Kitty's pass_keys.py kitten checks if `in_editor` variable is set:
+   - If set: Forward keypress to Neovim
+   - If not set: Call `neighboring_window()` directly
+
+3. Neovim's navigate() function:
+   a. Attempt local :wincmd movement
+   b. If window changed → done (stayed in Neovim)
+   c. If at edge → run: kitten @ focus-window --match neighbor:<direction>
+
+4. Kitty focuses the neighboring pane
+
+LIFECYCLE MANAGEMENT ~
+
+The plugin sets/unsets the `in_editor` Kitty user variable:
+
+    VimEnter    Set in_editor=1 (async, 50ms delay)
+    VimResume   Set in_editor=1 (async)
+    VimSuspend  Unset in_editor (async)
+    VimLeave    Unset in_editor (sync, must complete before exit)
+
+This ensures Kitty knows when Neovim is active and should receive keypresses.
+
+ARCHITECTURE ~
+
+The plugin is organized into three modules:
+
+    lua/kitty_navigator/
+    ├── init.lua        Public API, setup(), keymaps
+    ├── config.lua      Configuration, validation, runtime cache
+    └── navigation.lua  Core logic, lifecycle autocmds
+
+All configuration is evaluated once at setup() and cached for performance.
+The navigate() hot path uses direct table lookups with no function calls.
+
+==============================================================================
+9. TROUBLESHOOTING                           *kitty-navigator-troubleshooting*
+
+NAVIGATION DOESN'T WORK AT ALL ~
+
+1. Check Kitty remote control is enabled: >bash
+    kitten @ ls
+<
+   If this fails, add to kitty.conf and restart Kitty completely: >conf
+    allow_remote_control yes
+<
+
+2. Verify pass_keys.py is installed: >bash
+    ls ~/.config/kitty/pass_keys.py
+<
+
+3. Check kitty.conf has the keybindings (see |kitty-navigator-installation|)
+
+NAVIGATION WORKS IN VIM BUT NOT TO KITTY PANES ~
+
+1. Verify the in_editor variable is set while in Neovim: >bash
+    kitten @ ls | grep user_vars
+<
+   Should show: user_vars: {'in_editor': '1'}
+
+2. Check for errors: >vim
+    :messages
+<
+
+SSH NAVIGATION NOT WORKING ~
+
+1. Verify socket forwarding: >bash
+    # On remote machine:
+    kitten @ --to=unix:/tmp/kitty-remote.sock ls
+<
+
+2. Check socket_path is configured: >lua
+    :lua print(require("kitty_navigator.config").socket)
+<
+
+3. Ensure you're using a file-based socket (not abstract @name)
+
+KEYS SENT TO WRONG PANE ~
+
+This usually means the in_editor variable wasn't unset when you left Neovim.
+Check that VimLeave autocmd is firing: >vim
+    :autocmd KittyNavigatorLeave
+<
 
  vim:tw=78:ts=8:ft=help:norl:
