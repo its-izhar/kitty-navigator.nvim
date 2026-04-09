@@ -44,9 +44,12 @@ Features:
 ==============================================================================
 3. INSTALLATION                                 *kitty-navigator-installation*
 
-NEOVIM SETUP ~
+Note: Do not lazy-load this plugin. The lifecycle autocmds (VimEnter/VimLeave)
+must register at startup to properly set Kitty's `in_editor` variable.
+Internal lazy loading is already implemented, so startup impact is minimal.
 
-Using lazy.nvim: >lua
+NEOVIM SETUP: LAZY.NVIM ~
+>lua
     {
       "its-izhar/kitty-navigator.nvim",
       build = "cp ./kitty/* ~/.config/kitty/",
@@ -54,13 +57,47 @@ Using lazy.nvim: >lua
       opts = {},
     }
 <
-Note: Do not lazy-load this plugin. The lifecycle autocmds (VimEnter/VimLeave)
-must register at startup to properly set Kitty's `in_editor` variable.
+
+NEOVIM SETUP: VIM.PACK (BUILT-IN) ~
+
+Neovim's built-in plugin manager (|vim.pack|) can be used instead of
+lazy.nvim. Add this to your init.lua: >lua
+
+    vim.pack.add({
+      {
+        src = "https://github.com/its-izhar/kitty-navigator.nvim",
+        -- Pin to latest stable tag (optional):
+        -- version = vim.version.range("1.0"),
+      },
+    })
+
+    -- Configure after add() so the plugin is on the runtimepath
+    require("kitty_navigator").setup({})
+<
+
+Copy the kitten after install/update using the |PackChanged| event: >lua
+
+    vim.api.nvim_create_autocmd("PackChanged", {
+      callback = function(ev)
+        if ev.data.spec.name == "kitty-navigator.nvim" then
+          vim.system({
+            "cp", "-r",
+            ev.data.path .. "/kitty/.",
+            vim.fn.expand("~/.config/kitty/"),
+          })
+        end
+      end,
+    })
+<
+
+Note: Place the PackChanged autocmd BEFORE the vim.pack.add() call so it
+runs on initial install as well. For SSH usage, see |kitty-navigator-ssh|.
 
 KITTY SETUP ~
 
-1. Copy the kitten to Kitty's config directory:
->bash
+1. Copy pass_keys.py from the plugin's kitty/ directory to ~/.config/kitty/.
+   This is handled automatically by the build step (lazy.nvim) or PackChanged
+   hook (vim.pack) above. To copy manually: >bash
     cp ./kitty/pass_keys.py ~/.config/kitty/
 <
 
@@ -94,10 +131,24 @@ Call setup() with your options: >lua
       -- Install default <C-Arrow> keymaps (default: true)
       set_keymaps = true,
 
-      -- Socket path for Kitty remote control
-      -- Required for SSH. Can be string or function.
-      -- Format: "unix:<path>"
+      -- Socket path for Kitty remote control.
+      -- Required for SSH sessions. Must be file-based socket for SSH (not abstract).
+      -- Can be a string or a function returning a string.
+      -- Format: "unix:<path>" where <path> is a filesystem path
       socket_path = nil,
+
+      -- Example: static file-based socket (for SSH)
+      -- socket_path = "unix:/tmp/kitty-remote.sock",
+
+      -- Example: dynamic socket path with validation
+      -- (returns nil if socket doesn't exist, e.g. stale env var on multi-hop SSH)
+      -- socket_path = function()
+      --   local sock = vim.env.KITTY_REMOTE_SOCK
+      --   local stat = sock and vim.uv.fs_stat(sock)
+      --   if stat and stat.type == "socket" then
+      --     return "unix:" .. sock
+      --   end
+      -- end,
 
       -- Kitty user variable for editor detection (default: "in_editor")
       -- Must match the variable in your kitty.conf mappings
@@ -128,6 +179,7 @@ socket_path ~
     Type: string | function | nil
 
     The Unix socket path for Kitty remote control. Required for SSH sessions.
+    See |kitty-navigator-ssh| for setup instructions.
 
     Abstract socket (Linux local only): >lua
         socket_path = "unix:@mykitty"
@@ -135,9 +187,13 @@ socket_path ~
     File-based socket (required for SSH): >lua
         socket_path = "unix:/tmp/kitty-remote.sock"
 <
-    Dynamic function: >lua
+    Dynamic function with validation (handles stale sockets on multi-hop SSH): >lua
         socket_path = function()
-          return "unix:" .. vim.env.KITTY_REMOTE_SOCK
+          local sock = vim.env.KITTY_REMOTE_SOCK
+          local stat = sock and vim.uv.fs_stat(sock)
+          if stat and stat.type == "socket" then
+            return "unix:" .. sock
+          end
         end
 <
 
@@ -234,6 +290,19 @@ STEP 3: Configure Remote Neovim ~
 On the remote machine: >lua
     require("kitty_navigator").setup({
       socket_path = "unix:/tmp/kitty-remote.sock",
+    })
+<
+
+Or use a function to validate the socket before use (handles stale sockets
+from leaked env vars on multi-hop SSH): >lua
+    require("kitty_navigator").setup({
+      socket_path = function()
+        local sock = vim.env.KITTY_REMOTE_SOCK or "/tmp/kitty-remote.sock"
+        local stat = vim.uv.fs_stat(sock)
+        if stat and stat.type == "socket" then
+          return "unix:" .. sock
+        end
+      end,
     })
 <
 
@@ -354,6 +423,8 @@ NAVIGATION WORKS IN VIM BUT NOT TO KITTY PANES ~
 <
 
 SSH NAVIGATION NOT WORKING ~
+
+See |kitty-navigator-ssh| for full setup guide.
 
 1. Verify socket forwarding: >bash
     # On remote machine:
